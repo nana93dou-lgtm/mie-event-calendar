@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>三重県イベントカレンダー</title>
+  <title>三重県イベント調整カレンダー</title>
   <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;700;900&family=Shippori+Mincho:wght@700;800&display=swap" rel="stylesheet" />
   <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
@@ -19,152 +19,256 @@
 </head>
 <body>
   <div id="root"></div>
-
   <script type="text/babel">
-    const { useState } = React;
+    const { useState, useEffect } = React;
 
-    const INITIAL_EVENTS = [
-      { id: 1, title: "伊勢神宮 春の特別参拝", date: "2026-04-03", category: "文化・観光", location: "伊勢市・内宮", description: "春季恒例の特別参拝。早朝の神楽も楽しめます。", organizer: "伊勢神宮", source: "manual" },
-      { id: 2, title: "熊野古道ウォークラリー", date: "2026-04-18", category: "スポーツ・自然", location: "尾鷲市・熊野古道", description: "世界遺産の古道を歩く体験型イベント。", organizer: "尾鷲市観光協会", source: "manual" },
-      { id: 3, title: "三重県産業フェア2026", date: "2026-05-09", category: "産業・ビジネス", location: "津市・三重県総合文化センター", description: "県内企業の技術・製品が一堂に集まる展示会。", organizer: "三重県商工会議所連合会", source: "manual" },
-      { id: 4, title: "松阪牛まつり", date: "2026-05-17", category: "農業・食", location: "松阪市・松阪農業公園ベルファーム", description: "松阪牛の試食・販売、農業体験など盛りだくさん。", organizer: "松阪市", source: "manual" },
-      { id: 5, title: "子ども科学教室 in 四日市", date: "2026-04-25", category: "教育・学習", location: "四日市市・市立博物館", description: "小中学生対象の実験・工作ワークショップ。", organizer: "四日市市教育委員会", source: "manual" },
-      { id: 6, title: "志摩マリンフェスタ", date: "2026-05-03", category: "スポーツ・自然", location: "志摩市・英虞湾", description: "カヤック・シュノーケリング体験など海のアクティビティ。", organizer: "志摩市観光協会", source: "manual" },
-    ];
+    const SHEET_ID = "1hDZKp9516DpzeizxCcldk3bUkNA8jaLg";
+    const SHEET_URL = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?tqx=out:csv`;
 
-    const CATEGORIES = ["文化・観光", "産業・ビジネス", "教育・学習", "スポーツ・自然", "農業・食", "福祉・医療", "その他"];
+    const CATEGORIES = ["式年遷宮","大型集客・MICE","花火・祭り","産業・ビジネス","教育・学習","文化・観光","農業・食"];
     const CAT_COLOR = {
-      "文化・観光": "#EC4899", "産業・ビジネス": "#3B82F6", "教育・学習": "#10B981",
-      "スポーツ・自然": "#F59E0B", "農業・食": "#84CC16", "福祉・医療": "#8B5CF6", "その他": "#6B7280",
+      "式年遷宮":"#7C3AED","大型集客・MICE":"#DC2626","花火・祭り":"#D97706",
+      "産業・ビジネス":"#2563EB","教育・学習":"#059669","文化・観光":"#DB2777","農業・食":"#65A30D",
     };
+    const CAT_ICON = {
+      "式年遷宮":"⛩️","大型集客・MICE":"🏆","花火・祭り":"🎆",
+      "産業・ビジネス":"🏭","教育・学習":"📚","文化・観光":"🌸","農業・食":"🍚",
+    };
+
+    function parseCSV(csv) {
+      const lines = csv.trim().split("\n");
+      if (lines.length < 2) return [];
+      const header = lines[0].replace(/"/g,"").split(",").map(h => h.trim());
+      return lines.slice(1).map((line, i) => {
+        const cols = []; let cur = "", inQ = false;
+        for (let c of line) {
+          if (c==='"') { inQ=!inQ; }
+          else if (c===',' && !inQ) { cols.push(cur); cur=""; }
+          else { cur+=c; }
+        }
+        cols.push(cur);
+        const obj = {id: i+1};
+        header.forEach((h,idx) => { obj[h] = (cols[idx]||"").trim(); });
+        if (!obj.date && obj.date_start) obj.date = obj.date_start;
+        return obj;
+      }).filter(e => e.title && e.title.length > 0);
+    }
 
     function App() {
       const [page, setPage] = useState(() => {
         const p = new URLSearchParams(window.location.search).get("page");
-        return p === "admin" ? "admin" : "public";
+        return p==="admin" ? "admin" : "public";
       });
-      const [events, setEvents] = useState(INITIAL_EVENTS);
-      if (page === "admin") return <AdminPage events={events} setEvents={setEvents} onBack={() => setPage("public")} />;
-      return <PublicPage events={events} />;
+      const [events, setEvents] = useState([]);
+      const [loading, setLoading] = useState(true);
+      const [error, setError] = useState(null);
+
+      useEffect(() => {
+        fetch(SHEET_URL)
+          .then(r => { if (!r.ok) throw new Error("読み込みエラー"); return r.text(); })
+          .then(csv => { setEvents(parseCSV(csv)); setLoading(false); })
+          .catch(e => { setError(e.message); setLoading(false); });
+      }, []);
+
+      if (page==="admin") return <AdminPage events={events} setEvents={setEvents} onBack={() => setPage("public")} />;
+      return <PublicPage events={events} loading={loading} error={error} />;
     }
 
-    function PublicPage({ events }) {
+    function PublicPage({ events, loading, error }) {
       const [view, setView] = useState("list");
       const [filterCat, setFilterCat] = useState("すべて");
       const [search, setSearch] = useState("");
       const [selected, setSelected] = useState(null);
-      const [currentMonth, setCurrentMonth] = useState(new Date(2026, 3));
-      const [chat, setChat] = useState({ open: false, messages: [], input: "", loading: false });
+      const [currentMonth, setCurrentMonth] = useState(new Date(2026, 2));
+      const [chat, setChat] = useState({open:false, messages:[], input:"", loading:false});
 
       const filtered = events.filter(e =>
-        (filterCat === "すべて" || e.category === filterCat) &&
-        (search === "" || e.title.includes(search) || e.location.includes(search) || e.description.includes(search))
+        (filterCat==="すべて" || e.category===filterCat) &&
+        (search==="" || (e.title||"").includes(search) || (e.location||"").includes(search) || (e.note||"").includes(search))
       );
 
       const yr = currentMonth.getFullYear(), mo = currentMonth.getMonth();
-      const days = new Date(yr, mo + 1, 0).getDate();
+      const days = new Date(yr, mo+1, 0).getDate();
       const startDay = new Date(yr, mo, 1).getDay();
-      const calEvents = events.filter(e => { const d = new Date(e.date); return d.getFullYear() === yr && d.getMonth() === mo; });
+      const calEvents = events.filter(e => {
+        const start = new Date(e.date_start||e.date);
+        const end = new Date(e.date_end||e.date_start||e.date);
+        const mStart = new Date(yr, mo, 1);
+        const mEnd = new Date(yr, mo+1, 0);
+        return start <= mEnd && end >= mStart;
+      });
 
       async function sendChat() {
         const msg = chat.input.trim(); if (!msg) return;
-        const newMsgs = [...chat.messages, { role: "user", content: msg }];
-        setChat(c => ({ ...c, messages: newMsgs, input: "", loading: true }));
+        const newMsgs = [...chat.messages, {role:"user", content:msg}];
+        setChat(c => ({...c, messages:newMsgs, input:"", loading:true}));
         try {
-          const eventList = events.map(e => `・${e.title}（${e.date}、${e.location}）`).join("\n");
+          const eventList = events.map(e => `・${e.title}（${e.date_start||e.date}〜${e.date_end||e.date}、${e.location}、${e.category}）`).join("\n");
           const res = await fetch("https://api.anthropic.com/v1/messages", {
-            method: "POST", headers: { "Content-Type": "application/json" },
+            method:"POST", headers:{"Content-Type":"application/json"},
             body: JSON.stringify({
-              model: "claude-sonnet-4-20250514", max_tokens: 500,
-              system: `あなたは三重県イベントカレンダーのAIアシスタントです。登録済みのイベント情報をもとに質問に答えてください。簡潔に日本語で答えてください。\n\n登録イベント一覧:\n${eventList}`,
+              model:"claude-sonnet-4-20250514", max_tokens:500,
+              system:`あなたは三重県イベント調整カレンダーのAIアシスタントです。関係者向けにイベントのかぶり防止・コラボ・導線設計の観点でアドバイスしてください。\n\n登録イベント一覧:\n${eventList}`,
               messages: newMsgs
             })
           });
           const data = await res.json();
-          const reply = data.content?.[0]?.text?.trim() || "申し訳ありません、応答できませんでした。";
-          setChat(c => ({ ...c, loading: false, messages: [...newMsgs, { role: "assistant", content: reply }] }));
+          const reply = data.content?.[0]?.text?.trim() || "応答できませんでした。";
+          setChat(c => ({...c, loading:false, messages:[...newMsgs, {role:"assistant", content:reply}]}));
         } catch {
-          setChat(c => ({ ...c, loading: false, messages: [...newMsgs, { role: "assistant", content: "エラーが発生しました。" }] }));
+          setChat(c => ({...c, loading:false, messages:[...newMsgs, {role:"assistant", content:"エラーが発生しました。"}]}));
         }
       }
 
       return (
-        <div style={{ minHeight: "100vh", background: "#F0F7F4" }}>
-          <header style={{ background: "linear-gradient(135deg,#064E3B,#065F46,#047857)", color: "white", padding: "0 28px", display: "flex", alignItems: "center", justifyContent: "space-between", height: 68, boxShadow: "0 2px 16px rgba(0,0,0,0.2)" }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
-              <span style={{ fontSize: 32 }}>🦞</span>
+        <div style={{minHeight:"100vh", background:"#F0F7F4"}}>
+          <header style={{background:"linear-gradient(135deg,#064E3B,#065F46,#047857)", color:"white", padding:"0 28px", display:"flex", alignItems:"center", justifyContent:"space-between", height:68, boxShadow:"0 2px 16px rgba(0,0,0,0.2)"}}>
+            <div style={{display:"flex", alignItems:"center", gap:14}}>
+              <span style={{fontSize:28}}>⛩️</span>
               <div>
-                <div style={{ fontFamily: "'Shippori Mincho',serif", fontWeight: 800, fontSize: 18, letterSpacing: "0.08em" }}>三重県イベントカレンダー</div>
-                <div style={{ fontSize: 10, color: "#6EE7B7", letterSpacing: "0.1em" }}>MIE PREFECTURE EVENT PORTAL</div>
+                <div style={{fontFamily:"'Shippori Mincho',serif", fontWeight:800, fontSize:17, letterSpacing:"0.06em"}}>三重県イベント調整カレンダー</div>
+                <div style={{fontSize:10, color:"#6EE7B7", letterSpacing:"0.1em"}}>MIE EVENT COORDINATION CALENDAR</div>
               </div>
             </div>
-            <span style={{ background: "rgba(255,255,255,0.15)", padding: "4px 12px", borderRadius: 20, fontSize: 12, color: "#A7F3D0" }}>{events.length} 件のイベント</span>
+            <div style={{display:"flex", alignItems:"center", gap:10}}>
+              {!loading && <span style={{background:"rgba(255,255,255,0.15)", padding:"4px 12px", borderRadius:20, fontSize:12, color:"#A7F3D0"}}>{events.length}件</span>}
+              {loading && <span style={{fontSize:12, color:"#6EE7B7"}}>読み込み中...</span>}
+            </div>
           </header>
 
-          <div style={{ background: "linear-gradient(160deg,#064E3B,#065F46,#0F766E)", color: "white", padding: "44px 28px 40px", textAlign: "center", position: "relative", overflow: "hidden" }}>
-            <div style={{ position: "absolute", top: -40, right: -40, width: 200, height: 200, background: "rgba(255,255,255,0.03)", borderRadius: "50%" }} />
-            <div style={{ fontFamily: "'Shippori Mincho',serif", fontSize: 30, fontWeight: 800, marginBottom: 8 }}>三重のイベントを探す</div>
-            <div style={{ color: "#6EE7B7", fontSize: 13, marginBottom: 28 }}>県内全域のイベント情報をまとめてお届け</div>
-            <input placeholder="🔍  イベント名・会場・キーワードで検索..." value={search} onChange={e => setSearch(e.target.value)}
-              style={{ width: "100%", maxWidth: 560, padding: "14px 20px", borderRadius: 12, border: "none", fontSize: 14, outline: "none", background: "rgba(255,255,255,0.15)", color: "white", backdropFilter: "blur(8px)" }} />
+          <div style={{background:"linear-gradient(160deg,#064E3B,#065F46,#0F766E)", color:"white", padding:"28px 28px 24px", position:"relative", overflow:"hidden"}}>
+            <div style={{position:"absolute", top:-40, right:-40, width:200, height:200, background:"rgba(255,255,255,0.03)", borderRadius:"50%"}} />
+            <div style={{maxWidth:900, margin:"0 auto"}}>
+              <div style={{fontSize:12, color:"#6EE7B7", marginBottom:8, fontWeight:600, letterSpacing:"0.05em"}}>関係者共有ツール</div>
+              <input placeholder="🔍  イベント名・会場・キーワードで検索..." value={search} onChange={e => setSearch(e.target.value)}
+                style={{width:"100%", maxWidth:560, padding:"12px 18px", borderRadius:12, border:"none", fontSize:14, outline:"none", background:"rgba(255,255,255,0.15)", color:"white", backdropFilter:"blur(8px)"}} />
+            </div>
           </div>
 
-          <div style={{ background: "white", padding: "12px 24px", display: "flex", gap: 8, alignItems: "center", borderBottom: "1px solid #D1FAE5", flexWrap: "wrap", justifyContent: "space-between" }}>
-            <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-              {["すべて", ...CATEGORIES].map(cat => (
-                <button key={cat} onClick={() => setFilterCat(cat)} style={{ padding: "5px 14px", borderRadius: 20, border: "none", cursor: "pointer", fontSize: 12, fontWeight: 600, background: filterCat === cat ? "#064E3B" : "#ECFDF5", color: filterCat === cat ? "white" : "#065F46" }}>{cat}</button>
-              ))}
+          <div style={{background:"#1E293B", padding:"10px 24px", display:"flex", gap:6, flexWrap:"wrap", alignItems:"center"}}>
+            <span style={{fontSize:11, color:"#94A3B8", marginRight:2}}>重点カテゴリ：</span>
+            {CATEGORIES.map(cat => (
+              <button key={cat} onClick={() => setFilterCat(filterCat===cat?"すべて":cat)}
+                style={{background:filterCat===cat?CAT_COLOR[cat]:CAT_COLOR[cat]+"22", color:filterCat===cat?"white":CAT_COLOR[cat], fontSize:11, fontWeight:700, padding:"3px 10px", borderRadius:20, border:`1px solid ${CAT_COLOR[cat]}55`, cursor:"pointer", transition:"all 0.15s"}}>
+                {CAT_ICON[cat]} {cat}
+              </button>
+            ))}
+            {filterCat!=="すべて" && (
+              <button onClick={() => setFilterCat("すべて")} style={{background:"transparent", color:"#94A3B8", fontSize:11, border:"1px solid #475569", borderRadius:20, padding:"3px 10px", cursor:"pointer"}}>✕ 解除</button>
+            )}
+          </div>
+
+          <div style={{background:"white", padding:"10px 24px", display:"flex", justifyContent:"space-between", alignItems:"center", borderBottom:"1px solid #D1FAE5"}}>
+            <div style={{fontSize:12, color:"#6B7280"}}>
+              {filterCat==="すべて" ? `全${filtered.length}件` : `${filterCat}：${filtered.length}件`}
             </div>
-            <div style={{ display: "flex", gap: 4 }}>
+            <div style={{display:"flex", gap:4}}>
               {[["list","リスト"],["calendar","カレンダー"]].map(([v,l]) => (
-                <button key={v} onClick={() => setView(v)} style={{ padding: "6px 14px", borderRadius: 8, border: "none", cursor: "pointer", fontSize: 12, background: view === v ? "#064E3B" : "#ECFDF5", color: view === v ? "white" : "#065F46" }}>{l}</button>
+                <button key={v} onClick={() => setView(v)} style={{padding:"6px 14px", borderRadius:8, border:"none", cursor:"pointer", fontSize:12, background:view===v?"#064E3B":"#ECFDF5", color:view===v?"white":"#065F46"}}>{l}</button>
               ))}
             </div>
           </div>
 
-          <div style={{ maxWidth: 1100, margin: "0 auto", padding: "24px 24px 100px" }}>
-            {view === "list" ? (
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(300px,1fr))", gap: 16 }}>
-                {filtered.map(ev => (
-                  <div key={ev.id} onClick={() => setSelected(ev)} style={{ background: "white", borderRadius: 14, padding: 20, cursor: "pointer", boxShadow: "0 1px 4px rgba(0,0,0,0.06)", border: "1px solid #D1FAE5", borderLeft: `4px solid ${CAT_COLOR[ev.category]||"#6B7280"}`, transition: "all 0.15s" }}
-                    onMouseEnter={e => { e.currentTarget.style.transform="translateY(-2px)"; e.currentTarget.style.boxShadow="0 8px 24px rgba(6,78,59,0.12)"; }}
-                    onMouseLeave={e => { e.currentTarget.style.transform="none"; e.currentTarget.style.boxShadow="0 1px 4px rgba(0,0,0,0.06)"; }}>
-                    <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 8 }}>
-                      <span style={{ background: (CAT_COLOR[ev.category]||"#6B7280")+"18", color: CAT_COLOR[ev.category]||"#6B7280", fontSize: 11, fontWeight: 700, padding: "3px 10px", borderRadius: 20 }}>{ev.category}</span>
-                      <span style={{ fontSize: 12, color: "#6B7280" }}>{ev.date}</span>
-                    </div>
-                    <div style={{ fontWeight: 700, fontSize: 15, color: "#064E3B", marginBottom: 6, lineHeight: 1.4 }}>{ev.title}</div>
-                    <div style={{ fontSize: 12, color: "#059669", marginBottom: 4 }}>📍 {ev.location}</div>
-                    <div style={{ fontSize: 12, color: "#6B7280", lineHeight: 1.5 }}>{ev.description}</div>
-                    {ev.source === "ai" && <div style={{ marginTop: 8, fontSize: 10, color: "#7C3AED", background: "#EDE9FE", padding: "2px 8px", borderRadius: 10, display: "inline-block" }}>🤖 AI収集</div>}
-                  </div>
-                ))}
-                {filtered.length === 0 && (
-                  <div style={{ gridColumn: "1/-1", textAlign: "center", padding: 60, color: "#9CA3AF" }}>
-                    <div style={{ fontSize: 48, marginBottom: 12 }}>🔍</div>
-                    <div>該当するイベントが見つかりませんでした</div>
+          <div style={{maxWidth:1200, margin:"0 auto", padding:"20px 24px 100px"}}>
+            {loading && (
+              <div style={{textAlign:"center", padding:80, color:"#059669"}}>
+                <div style={{fontSize:36, marginBottom:12}}>⏳</div>
+                <div style={{fontSize:14}}>スプレッドシートからイベント情報を読み込んでいます...</div>
+              </div>
+            )}
+            {error && (
+              <div style={{background:"#FEF2F2", border:"1px solid #FECACA", borderRadius:12, padding:24, textAlign:"center", color:"#DC2626", margin:"20px 0"}}>
+                <div style={{fontSize:24, marginBottom:8}}>⚠️</div>
+                <div style={{fontWeight:700, marginBottom:4}}>データの読み込みに失敗しました</div>
+                <div style={{fontSize:13}}>Googleスプレッドシートの公開設定（リンクを知っている全員が閲覧可能）を確認してください。</div>
+                <div style={{fontSize:12, color:"#9CA3AF", marginTop:8}}>シートID: {SHEET_ID}</div>
+              </div>
+            )}
+
+            {!loading && !error && view==="list" && (
+              <div>
+                {filterCat==="すべて" && (
+                  <div style={{marginBottom:16}}>
+                    {["式年遷宮","大型集客・MICE"].map(cat => {
+                      const upcoming = events.filter(e => e.category===cat && new Date(e.date_start||e.date) >= new Date()).slice(0,1);
+                      if (!upcoming.length) return null;
+                      return (
+                        <div key={cat} style={{background:CAT_COLOR[cat]+"12", border:`1px solid ${CAT_COLOR[cat]}44`, borderLeft:`4px solid ${CAT_COLOR[cat]}`, borderRadius:10, padding:"10px 16px", marginBottom:8, display:"flex", alignItems:"center", gap:12, cursor:"pointer"}}
+                          onClick={() => setSelected(upcoming[0])}>
+                          <span style={{fontSize:18}}>{CAT_ICON[cat]}</span>
+                          <div style={{flex:1}}>
+                            <span style={{fontSize:10, fontWeight:700, color:CAT_COLOR[cat], marginRight:6}}>{cat} ▲ NEXT</span>
+                            <span style={{fontSize:13, color:"#1E293B", fontWeight:700}}>{upcoming[0].title}</span>
+                          </div>
+                          <span style={{fontSize:12, color:"#6B7280", whiteSpace:"nowrap"}}>{upcoming[0].date_start||upcoming[0].date}</span>
+                        </div>
+                      );
+                    })}
                   </div>
                 )}
-              </div>
-            ) : (
-              <div style={{ background: "white", borderRadius: 16, padding: 24, boxShadow: "0 1px 4px rgba(0,0,0,0.06)" }}>
-                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 20 }}>
-                  <button onClick={() => setCurrentMonth(m => new Date(m.getFullYear(), m.getMonth()-1))} style={{ border: "1px solid #D1FAE5", background: "white", borderRadius: 8, padding: "6px 14px", cursor: "pointer", fontSize: 16, color: "#064E3B" }}>‹</button>
-                  <div style={{ fontWeight: 700, fontSize: 18, color: "#064E3B", fontFamily: "'Shippori Mincho',serif" }}>{yr}年 {mo+1}月</div>
-                  <button onClick={() => setCurrentMonth(m => new Date(m.getFullYear(), m.getMonth()+1))} style={{ border: "1px solid #D1FAE5", background: "white", borderRadius: 8, padding: "6px 14px", cursor: "pointer", fontSize: 16, color: "#064E3B" }}>›</button>
-                </div>
-                <div style={{ display: "grid", gridTemplateColumns: "repeat(7,1fr)", gap: 3 }}>
-                  {["日","月","火","水","木","金","土"].map(d => <div key={d} style={{ textAlign: "center", fontSize: 12, fontWeight: 700, color: "#9CA3AF", padding: "6px 0" }}>{d}</div>)}
-                  {Array.from({length: startDay}).map((_,i) => <div key={`e${i}`} />)}
-                  {Array.from({length: days}).map((_,i) => {
-                    const day = i+1;
-                    const de = calEvents.filter(e => new Date(e.date).getDate() === day);
+                <div style={{display:"grid", gridTemplateColumns:"repeat(auto-fill,minmax(320px,1fr))", gap:14}}>
+                  {filtered.map(ev => {
+                    const color = CAT_COLOR[ev.category]||"#6B7280";
+                    const startDate = ev.date_start||ev.date;
+                    const endDate = ev.date_end && ev.date_end!==startDate ? ev.date_end : null;
                     return (
-                      <div key={day} style={{ minHeight: 70, background: "#F0FDF4", borderRadius: 8, padding: 6, border: "1px solid #D1FAE5" }}>
-                        <div style={{ fontSize: 12, fontWeight: 600, color: "#475569", marginBottom: 3 }}>{day}</div>
-                        {de.map(ev => (
-                          <div key={ev.id} onClick={() => setSelected(ev)} style={{ background: CAT_COLOR[ev.category]||"#6B7280", color: "white", fontSize: 10, padding: "2px 5px", borderRadius: 4, marginBottom: 2, cursor: "pointer", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{ev.title}</div>
+                      <div key={ev.id} onClick={() => setSelected(ev)} style={{background:"white", borderRadius:14, padding:"16px 18px", cursor:"pointer", boxShadow:"0 1px 4px rgba(0,0,0,0.06)", border:`1px solid ${color}33`, borderLeft:`4px solid ${color}`, transition:"all 0.15s"}}
+                        onMouseEnter={e => {e.currentTarget.style.transform="translateY(-2px)"; e.currentTarget.style.boxShadow=`0 8px 24px ${color}22`;}}
+                        onMouseLeave={e => {e.currentTarget.style.transform="none"; e.currentTarget.style.boxShadow="0 1px 4px rgba(0,0,0,0.06)";}}>
+                        <div style={{display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:8}}>
+                          <span style={{background:color+"18", color:color, fontSize:10, fontWeight:700, padding:"3px 10px", borderRadius:20}}>{CAT_ICON[ev.category]} {ev.category}</span>
+                          <span style={{fontSize:11, color:"#6B7280", textAlign:"right", lineHeight:1.4}}>
+                            {startDate}{endDate ? `\n〜${endDate}` : ""}
+                          </span>
+                        </div>
+                        <div style={{fontWeight:700, fontSize:14, color:"#064E3B", marginBottom:5, lineHeight:1.4}}>{ev.title}</div>
+                        <div style={{fontSize:12, color:"#059669", marginBottom:4}}>📍 {ev.location}</div>
+                        {ev.note && <div style={{fontSize:11, color:"#6B7280", lineHeight:1.5, marginTop:6, borderTop:"1px solid #F0FDF4", paddingTop:6}}>{ev.note.length>80?ev.note.slice(0,80)+"…":ev.note}</div>}
+                        {ev.link && ev.link.startsWith("http") && (
+                          <a href={ev.link} target="_blank" rel="noopener noreferrer" onClick={e => e.stopPropagation()}
+                            style={{fontSize:11, color:"#059669", textDecoration:"none", display:"inline-block", marginTop:6}}>🔗 詳細</a>
+                        )}
+                      </div>
+                    );
+                  })}
+                  {filtered.length===0 && (
+                    <div style={{gridColumn:"1/-1", textAlign:"center", padding:60, color:"#9CA3AF"}}>
+                      <div style={{fontSize:36, marginBottom:12}}>🔍</div>
+                      <div>該当するイベントが見つかりませんでした</div>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {!loading && !error && view==="calendar" && (
+              <div style={{background:"white", borderRadius:16, padding:24, boxShadow:"0 1px 4px rgba(0,0,0,0.06)"}}>
+                <div style={{display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:20}}>
+                  <button onClick={() => setCurrentMonth(m => new Date(m.getFullYear(), m.getMonth()-1))} style={{border:"1px solid #D1FAE5", background:"white", borderRadius:8, padding:"6px 14px", cursor:"pointer", fontSize:16, color:"#064E3B"}}>‹</button>
+                  <div style={{fontWeight:700, fontSize:18, color:"#064E3B", fontFamily:"'Shippori Mincho',serif"}}>{yr}年 {mo+1}月</div>
+                  <button onClick={() => setCurrentMonth(m => new Date(m.getFullYear(), m.getMonth()+1))} style={{border:"1px solid #D1FAE5", background:"white", borderRadius:8, padding:"6px 14px", cursor:"pointer", fontSize:16, color:"#064E3B"}}>›</button>
+                </div>
+                <div style={{display:"grid", gridTemplateColumns:"repeat(7,1fr)", gap:3}}>
+                  {["日","月","火","水","木","金","土"].map(d => <div key={d} style={{textAlign:"center", fontSize:12, fontWeight:700, color:"#9CA3AF", padding:"6px 0"}}>{d}</div>)}
+                  {Array.from({length:startDay}).map((_,i) => <div key={`e${i}`} />)}
+                  {Array.from({length:days}).map((_,i) => {
+                    const day = i+1;
+                    const cur = new Date(yr, mo, day);
+                    const de = calEvents.filter(e => {
+                      const s = new Date(e.date_start||e.date);
+                      const en = new Date(e.date_end||e.date_start||e.date);
+                      return cur >= s && cur <= en;
+                    });
+                    const hasMajor = de.some(e => ["式年遷宮","大型集客・MICE"].includes(e.category));
+                    return (
+                      <div key={day} style={{minHeight:72, background:hasMajor?"#FFF7ED":"#F0FDF4", borderRadius:8, padding:6, border:`1px solid ${hasMajor?"#FED7AA":"#D1FAE5"}`}}>
+                        <div style={{fontSize:12, fontWeight:600, color:hasMajor?"#D97706":"#475569", marginBottom:3}}>{day}</div>
+                        {de.slice(0,3).map(ev => (
+                          <div key={ev.id} onClick={() => setSelected(ev)} style={{background:CAT_COLOR[ev.category]||"#6B7280", color:"white", fontSize:9, padding:"2px 5px", borderRadius:4, marginBottom:2, cursor:"pointer", overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap"}}>
+                            {CAT_ICON[ev.category]} {ev.title}
+                          </div>
                         ))}
+                        {de.length > 3 && <div style={{fontSize:9, color:"#6B7280"}}>+{de.length-3}件</div>}
                       </div>
                     );
                   })}
@@ -174,42 +278,55 @@
           </div>
 
           {selected && (
-            <div onClick={() => setSelected(null)} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 100, padding: 24 }}>
-              <div onClick={e => e.stopPropagation()} style={{ background: "white", borderRadius: 16, padding: 32, maxWidth: 480, width: "100%", boxShadow: "0 20px 60px rgba(0,0,0,0.2)" }}>
-                <span style={{ background: (CAT_COLOR[selected.category]||"#6B7280")+"18", color: CAT_COLOR[selected.category]||"#6B7280", fontSize: 11, fontWeight: 700, padding: "3px 10px", borderRadius: 20 }}>{selected.category}</span>
-                <h2 style={{ fontWeight: 700, fontSize: 20, margin: "12px 0 8px", color: "#064E3B", fontFamily: "'Shippori Mincho',serif" }}>{selected.title}</h2>
-                <div style={{ fontSize: 14, color: "#059669", marginBottom: 6 }}>📅 {selected.date}</div>
-                <div style={{ fontSize: 14, color: "#059669", marginBottom: 6 }}>📍 {selected.location}</div>
-                {selected.organizer && <div style={{ fontSize: 14, color: "#059669", marginBottom: 6 }}>🏢 主催：{selected.organizer}</div>}
-                <div style={{ fontSize: 14, color: "#374151", marginTop: 12, lineHeight: 1.8 }}>{selected.description}</div>
-                {selected.source === "ai" && <div style={{ marginTop: 10, fontSize: 11, color: "#7C3AED", background: "#EDE9FE", padding: "4px 12px", borderRadius: 10, display: "inline-block" }}>🤖 AIが自動収集したイベントです</div>}
-                <button onClick={() => setSelected(null)} style={{ marginTop: 20, width: "100%", background: "#064E3B", color: "white", border: "none", borderRadius: 10, padding: 12, fontWeight: 700, cursor: "pointer" }}>閉じる</button>
+            <div onClick={() => setSelected(null)} style={{position:"fixed", inset:0, background:"rgba(0,0,0,0.5)", display:"flex", alignItems:"center", justifyContent:"center", zIndex:100, padding:24}}>
+              <div onClick={e => e.stopPropagation()} style={{background:"white", borderRadius:16, padding:32, maxWidth:520, width:"100%", boxShadow:"0 20px 60px rgba(0,0,0,0.2)", maxHeight:"90vh", overflowY:"auto"}}>
+                <span style={{background:(CAT_COLOR[selected.category]||"#6B7280")+"18", color:CAT_COLOR[selected.category]||"#6B7280", fontSize:12, fontWeight:700, padding:"4px 12px", borderRadius:20}}>
+                  {CAT_ICON[selected.category]} {selected.category}
+                </span>
+                <h2 style={{fontWeight:700, fontSize:18, margin:"12px 0 10px", color:"#064E3B", fontFamily:"'Shippori Mincho',serif", lineHeight:1.4}}>{selected.title}</h2>
+                <div style={{fontSize:13, color:"#059669", marginBottom:5}}>
+                  📅 {selected.date_start||selected.date}
+                  {selected.date_end && selected.date_end!==(selected.date_start||selected.date) ? ` 〜 ${selected.date_end}` : ""}
+                </div>
+                <div style={{fontSize:13, color:"#059669", marginBottom:5}}>📍 {selected.location}</div>
+                {selected.note && (
+                  <div style={{fontSize:13, color:"#374151", marginTop:12, lineHeight:1.8, background:"#F8FAFC", padding:"12px 14px", borderRadius:10, borderLeft:"3px solid #065F46"}}>
+                    {selected.note}
+                  </div>
+                )}
+                {selected.link && selected.link.startsWith("http") && (
+                  <a href={selected.link} target="_blank" rel="noopener noreferrer"
+                    style={{display:"inline-flex", alignItems:"center", gap:6, marginTop:14, color:"#059669", fontSize:13, textDecoration:"none", fontWeight:600}}>
+                    🔗 詳細ページを見る
+                  </a>
+                )}
+                <button onClick={() => setSelected(null)} style={{marginTop:20, width:"100%", background:"#064E3B", color:"white", border:"none", borderRadius:10, padding:12, fontWeight:700, cursor:"pointer"}}>閉じる</button>
               </div>
             </div>
           )}
 
-          <div style={{ position: "fixed", bottom: 24, right: 24, zIndex: 200 }}>
+          <div style={{position:"fixed", bottom:24, right:24, zIndex:200}}>
             {chat.open && (
-              <div style={{ position: "absolute", bottom: 70, right: 0, width: 340, background: "white", borderRadius: 16, boxShadow: "0 8px 40px rgba(0,0,0,0.15)", overflow: "hidden", border: "1px solid #D1FAE5" }}>
-                <div style={{ background: "linear-gradient(135deg,#064E3B,#0F766E)", color: "white", padding: "14px 18px", fontWeight: 700, fontSize: 14 }}>
+              <div style={{position:"absolute", bottom:70, right:0, width:340, background:"white", borderRadius:16, boxShadow:"0 8px 40px rgba(0,0,0,0.15)", overflow:"hidden", border:"1px solid #D1FAE5"}}>
+                <div style={{background:"linear-gradient(135deg,#064E3B,#0F766E)", color:"white", padding:"14px 18px", fontWeight:700, fontSize:14}}>
                   🤖 AIアシスタント
-                  <div style={{ fontSize: 11, fontWeight: 400, opacity: 0.7, marginTop: 2 }}>イベントについて何でも聞いてください</div>
+                  <div style={{fontSize:11, fontWeight:400, opacity:0.7, marginTop:2}}>かぶり・コラボ・導線設計の相談</div>
                 </div>
-                <div style={{ height: 240, overflowY: "auto", padding: 14, display: "flex", flexDirection: "column", gap: 10 }}>
-                  {chat.messages.length === 0 && <div style={{ color: "#9CA3AF", fontSize: 13, textAlign: "center", marginTop: 60 }}>「今週のイベントは？」など<br/>気軽に聞いてみてください</div>}
+                <div style={{height:240, overflowY:"auto", padding:14, display:"flex", flexDirection:"column", gap:10}}>
+                  {chat.messages.length===0 && <div style={{color:"#9CA3AF", fontSize:12, textAlign:"center", marginTop:40}}>「F1と被らないイベントは？」<br/>「式年遷宮と連携できるイベントは？」<br/>など気軽に相談できます</div>}
                   {chat.messages.map((m,i) => (
-                    <div key={i} style={{ alignSelf: m.role==="user"?"flex-end":"flex-start", background: m.role==="user"?"#064E3B":"#F0FDF4", color: m.role==="user"?"white":"#064E3B", padding: "8px 12px", borderRadius: 12, maxWidth: "85%", fontSize: 13, lineHeight: 1.6 }}>{m.content}</div>
+                    <div key={i} style={{alignSelf:m.role==="user"?"flex-end":"flex-start", background:m.role==="user"?"#064E3B":"#F0FDF4", color:m.role==="user"?"white":"#064E3B", padding:"8px 12px", borderRadius:12, maxWidth:"85%", fontSize:13, lineHeight:1.6}}>{m.content}</div>
                   ))}
-                  {chat.loading && <div style={{ color: "#9CA3AF", fontSize: 12 }}>考え中...</div>}
+                  {chat.loading && <div style={{color:"#9CA3AF", fontSize:12}}>考え中...</div>}
                 </div>
-                <div style={{ padding: 12, borderTop: "1px solid #D1FAE5", display: "flex", gap: 8 }}>
-                  <input value={chat.input} onChange={e => setChat(c => ({...c,input:e.target.value}))} onKeyDown={e => e.key==="Enter" && sendChat()} placeholder="質問を入力..."
-                    style={{ flex: 1, padding: "8px 12px", borderRadius: 8, border: "1px solid #D1FAE5", fontSize: 13, outline: "none" }} />
-                  <button onClick={sendChat} style={{ background: "#064E3B", color: "white", border: "none", borderRadius: 8, padding: "8px 14px", cursor: "pointer", fontSize: 13 }}>送信</button>
+                <div style={{padding:12, borderTop:"1px solid #D1FAE5", display:"flex", gap:8}}>
+                  <input value={chat.input} onChange={e => setChat(c => ({...c,input:e.target.value}))} onKeyDown={e => e.key==="Enter"&&sendChat()} placeholder="質問を入力..."
+                    style={{flex:1, padding:"8px 12px", borderRadius:8, border:"1px solid #D1FAE5", fontSize:13, outline:"none"}} />
+                  <button onClick={sendChat} style={{background:"#064E3B", color:"white", border:"none", borderRadius:8, padding:"8px 14px", cursor:"pointer", fontSize:13}}>送信</button>
                 </div>
               </div>
             )}
-            <button onClick={() => setChat(c => ({...c,open:!c.open}))} style={{ width: 56, height: 56, borderRadius: "50%", background: "linear-gradient(135deg,#059669,#0F766E)", border: "none", cursor: "pointer", fontSize: 24, boxShadow: "0 4px 20px rgba(5,150,105,0.4)", display: "flex", alignItems: "center", justifyContent: "center" }}>
+            <button onClick={() => setChat(c => ({...c,open:!c.open}))} style={{width:56, height:56, borderRadius:"50%", background:"linear-gradient(135deg,#059669,#0F766E)", border:"none", cursor:"pointer", fontSize:24, boxShadow:"0 4px 20px rgba(5,150,105,0.4)", display:"flex", alignItems:"center", justifyContent:"center"}}>
               {chat.open ? "✕" : "🤖"}
             </button>
           </div>
@@ -219,210 +336,207 @@
 
     function AdminPage({ events, setEvents, onBack }) {
       const [tab, setTab] = useState("list");
-      const [form, setForm] = useState({ title:"", date:"", location:"", description:"", organizer:"", category:"" });
-      const [ai, setAi] = useState({ url:"", loading:false, result:null, error:null, suggestion:null, classifying:false });
+      const [form, setForm] = useState({title:"",date_start:"",date_end:"",location:"",category:"",note:"",link:""});
+      const [ai, setAi] = useState({suggestion:null, classifying:false});
       const [editId, setEditId] = useState(null);
+      const [linkState, setLinkState] = useState({url:"",loading:false,error:null});
 
-      async function fetchFromUrl() {
-        if (!ai.url.trim()) return;
-        setAi(a => ({...a, loading:true, result:null, error:null}));
+      async function fetchMeta() {
+        const url = linkState.url.trim();
+        if (!url||!url.startsWith("http")) { setLinkState(s=>({...s,error:"有効なURLを入力してください"})); return; }
+        setLinkState(s=>({...s,loading:true,error:null}));
         try {
-          const res = await fetch("https://api.anthropic.com/v1/messages", {
-            method: "POST", headers: {"Content-Type":"application/json"},
-            body: JSON.stringify({
-              model: "claude-sonnet-4-20250514", max_tokens: 1000,
-              tools: [{ type: "web_search_20250305", name: "web_search" }],
-              system: "あなたはイベント情報抽出AIです。与えられたURLやキーワードからイベント情報を検索・抽出し、必ずJSON形式のみで返してください。マークダウンやコードブロックは使わないでください。",
-              messages: [{ role: "user", content: `以下のURLまたはキーワードからイベント情報を取得・抽出してください: ${ai.url}\n\n以下のJSON形式のみで返答してください（他の文字は一切含めないこと）:\n{"title":"","date":"YYYY-MM-DD","location":"","description":"","organizer":"","category":"文化・観光|産業・ビジネス|教育・学習|スポーツ・自然|農業・食|福祉・医療|その他"}` }]
-            })
-          });
+          const proxy = "https://api.allorigins.win/get?url=" + encodeURIComponent(url);
+          const res = await fetch(proxy);
           const data = await res.json();
-          const text = data.content?.filter(b => b.type==="text").map(b => b.text).join("") || "";
-          const clean = text.replace(/```json|```/g,"").trim();
-          const parsed = JSON.parse(clean);
-          setAi(a => ({...a, loading:false, result:parsed}));
-          setForm(parsed);
+          const html = data.contents||"";
+          const getTag = p => {
+            const m = html.match(new RegExp('<meta[^>]+(?:property|name)=["\']'+p+'["\'][^>]+content=["\']([^"\']+)["\']','i'))
+                    || html.match(new RegExp('<meta[^>]+content=["\']([^"\']+)["\'][^>]+(?:property|name)=["\']'+p+'["\']','i'));
+            return m ? m[1].trim() : "";
+          };
+          const titleTag = html.match(/<title[^>]*>([^<]+)<\/title>/i);
+          const title = getTag("og:title")||(titleTag?titleTag[1].trim():"")||"";
+          const description = getTag("og:description")||getTag("description")||"";
+          const dateMatch = html.match(/20\d{2}[年\-\/\.]\s*\d{1,2}[月\-\/\.]\s*\d{1,2}/);
+          let date_start = "";
+          if (dateMatch) {
+            const d = dateMatch[0].replace(/[年月\/\.]/g,"-").replace(/日/g,"").replace(/\s/g,"");
+            const parts = d.split("-").filter(Boolean);
+            if (parts.length===3) date_start = `${parts[0]}-${parts[1].padStart(2,"0")}-${parts[2].padStart(2,"0")}`;
+          }
+          setForm(f=>({...f, title:title||f.title, date_start:date_start||f.date_start, note:description||f.note, link:url}));
+          setLinkState(s=>({...s,loading:false,error:null}));
+          setTab("manual");
         } catch {
-          setAi(a => ({...a, loading:false, error:"情報の抽出に失敗しました。URLを確認するか、手動で入力してください。"}));
+          setForm(f=>({...f,link:url}));
+          setLinkState(s=>({...s,loading:false,error:"取得に失敗しました。手動で入力してください。"}));
+          setTimeout(()=>setTab("manual"),1200);
         }
       }
 
       async function autoClassify() {
-        if (!form.title && !form.description) return;
-        setAi(a => ({...a, classifying:true}));
+        if (!form.title&&!form.note) return;
+        setAi(a=>({...a,classifying:true}));
         try {
-          const res = await fetch("https://api.anthropic.com/v1/messages", {
-            method: "POST", headers: {"Content-Type":"application/json"},
-            body: JSON.stringify({
-              model: "claude-sonnet-4-20250514", max_tokens: 100,
-              messages: [{ role: "user", content: `イベント名「${form.title}」説明「${form.description}」に最適なカテゴリを1つ選んでください。\n選択肢: ${CATEGORIES.join("、")}\nカテゴリ名のみ返答してください。` }]
-            })
+          const res = await fetch("https://api.anthropic.com/v1/messages",{
+            method:"POST", headers:{"Content-Type":"application/json"},
+            body:JSON.stringify({model:"claude-sonnet-4-20250514", max_tokens:100,
+              messages:[{role:"user",content:`イベント名「${form.title}」説明「${form.note}」に最適なカテゴリを1つ選んでください。\n選択肢: ${CATEGORIES.join("、")}\nカテゴリ名のみ返答してください。`}]})
           });
           const data = await res.json();
           const cat = data.content?.[0]?.text?.trim();
           if (CATEGORIES.includes(cat)) {
-            setForm(f => ({...f, category:cat}));
-            setAi(a => ({...a, classifying:false, suggestion:`カテゴリを「${cat}」に自動分類しました ✓`}));
-          } else { setAi(a => ({...a, classifying:false})); }
-        } catch { setAi(a => ({...a, classifying:false})); }
-      }
-
-      async function aiCheck() {
-        setAi(a => ({...a, classifying:true, suggestion:null}));
-        try {
-          const res = await fetch("https://api.anthropic.com/v1/messages", {
-            method: "POST", headers: {"Content-Type":"application/json"},
-            body: JSON.stringify({
-              model: "claude-sonnet-4-20250514", max_tokens: 300,
-              messages: [{ role: "user", content: `イベント登録内容をチェックし改善点を2〜3点教えてください。問題なければ「登録内容は問題ありません ✓」と答えてください。\nタイトル:${form.title} 日付:${form.date} 場所:${form.location} 説明:${form.description} 主催:${form.organizer} カテゴリ:${form.category}` }]
-            })
-          });
-          const data = await res.json();
-          setAi(a => ({...a, classifying:false, suggestion:data.content?.[0]?.text?.trim()}));
-        } catch { setAi(a => ({...a, classifying:false, suggestion:"チェックに失敗しました。"})); }
+            setForm(f=>({...f,category:cat}));
+            setAi(a=>({...a,classifying:false,suggestion:`カテゴリを「${cat}」に自動分類しました ✓`}));
+          } else { setAi(a=>({...a,classifying:false})); }
+        } catch { setAi(a=>({...a,classifying:false})); }
       }
 
       function saveEvent() {
-        if (!form.title || !form.date || !form.location) return alert("タイトル・日付・場所は必須です");
+        if (!form.title) return alert("イベント名は必須です");
+        if (!form.date_start) return alert("開始日は必須です");
         if (editId) {
-          setEvents(ev => ev.map(e => e.id===editId ? {...e,...form} : e));
-          setEditId(null);
+          setEvents(ev=>ev.map(e=>e.id===editId?{...e,...form}:e)); setEditId(null);
         } else {
-          setEvents(ev => [...ev, {id:Date.now(),...form,source:tab==="ai"?"ai":"manual"}]);
+          setEvents(ev=>[...ev, {id:Date.now(),...form}]);
         }
-        setForm({title:"",date:"",location:"",description:"",organizer:"",category:""});
-        setAi(a => ({...a,url:"",result:null,suggestion:null}));
-        setTab("list");
+        setForm({title:"",date_start:"",date_end:"",location:"",category:"",note:"",link:""});
+        setAi({suggestion:null,classifying:false}); setTab("list");
       }
 
-      function deleteEvent(id) { if (window.confirm("削除しますか？")) setEvents(ev => ev.filter(e => e.id!==id)); }
-      function startEdit(ev) { setForm({title:ev.title,date:ev.date,location:ev.location,description:ev.description,organizer:ev.organizer,category:ev.category}); setEditId(ev.id); setTab("manual"); }
+      function deleteEvent(id) { if(window.confirm("削除しますか？")) setEvents(ev=>ev.filter(e=>e.id!==id)); }
+      function startEdit(ev) { setForm({title:ev.title,date_start:ev.date_start||ev.date||"",date_end:ev.date_end||"",location:ev.location||"",category:ev.category||"",note:ev.note||"",link:ev.link||""}); setEditId(ev.id); setTab("manual"); }
 
-      const iStyle = { width:"100%", padding:"10px 14px", borderRadius:8, border:"1px solid #D1FAE5", fontSize:14, outline:"none" };
-      const lStyle = { fontSize:12, fontWeight:600, color:"#065F46", display:"block", marginBottom:4 };
+      const iStyle = {width:"100%",padding:"10px 14px",borderRadius:8,border:"1px solid #D1FAE5",fontSize:14,outline:"none"};
+      const lStyle = {fontSize:12,fontWeight:600,color:"#065F46",display:"block",marginBottom:4};
 
       return (
-        <div style={{ minHeight:"100vh", background:"#F0FDF4" }}>
-          <header style={{ background:"linear-gradient(135deg,#064E3B,#065F46)", color:"white", padding:"0 28px", display:"flex", alignItems:"center", justifyContent:"space-between", height:64 }}>
-            <div style={{ display:"flex", alignItems:"center", gap:12 }}>
-              <span style={{ fontSize:24 }}>🦞</span>
+        <div style={{minHeight:"100vh",background:"#F0FDF4"}}>
+          <header style={{background:"linear-gradient(135deg,#064E3B,#065F46)",color:"white",padding:"0 28px",display:"flex",alignItems:"center",justifyContent:"space-between",height:64}}>
+            <div style={{display:"flex",alignItems:"center",gap:12}}>
+              <span style={{fontSize:22}}>⛩️</span>
               <div>
-                <div style={{ fontFamily:"'Shippori Mincho',serif", fontWeight:800, fontSize:16 }}>三重県イベントカレンダー</div>
-                <div style={{ fontSize:10, color:"#6EE7B7", letterSpacing:"0.1em" }}>管理者ページ</div>
+                <div style={{fontFamily:"'Shippori Mincho',serif",fontWeight:800,fontSize:15}}>三重県イベント調整カレンダー</div>
+                <div style={{fontSize:10,color:"#6EE7B7"}}>管理者ページ（セッション内のみ有効）</div>
               </div>
             </div>
-            <button onClick={onBack} style={{ background:"rgba(255,255,255,0.15)", color:"white", border:"1px solid rgba(255,255,255,0.3)", borderRadius:8, padding:"7px 16px", cursor:"pointer", fontSize:13 }}>← 公開ページへ</button>
+            <button onClick={onBack} style={{background:"rgba(255,255,255,0.15)",color:"white",border:"1px solid rgba(255,255,255,0.3)",borderRadius:8,padding:"7px 16px",cursor:"pointer",fontSize:13}}>← 公開ページへ</button>
           </header>
 
-          <div style={{ maxWidth:900, margin:"0 auto", padding:"28px 24px" }}>
-            <div style={{ display:"flex", gap:4, marginBottom:24, background:"white", padding:4, borderRadius:12, border:"1px solid #D1FAE5", width:"fit-content" }}>
-              {[["list","📋 イベント一覧"],["manual","✏️ 手動登録"],["ai","🤖 AI自動収集"]].map(([key,label]) => (
-                <button key={key} onClick={() => { setTab(key); if (key!=="manual") { setEditId(null); setForm({title:"",date:"",location:"",description:"",organizer:"",category:""}); } }} style={{ padding:"8px 20px", borderRadius:8, border:"none", cursor:"pointer", fontSize:13, fontWeight:600, background:tab===key?"#064E3B":"transparent", color:tab===key?"white":"#065F46" }}>{label}</button>
+          <div style={{maxWidth:900,margin:"0 auto",padding:"24px"}}>
+            <div style={{background:"#FFF7ED",border:"1px solid #FED7AA",borderRadius:12,padding:"12px 16px",marginBottom:20,fontSize:13,color:"#92400E"}}>
+              ⚠️ ここでの変更はセッション内のみ有効です。恒久的な更新はGoogleスプレッドシートを直接編集してください。
+            </div>
+
+            <div style={{display:"flex",gap:4,marginBottom:20,background:"white",padding:4,borderRadius:12,border:"1px solid #D1FAE5",width:"fit-content"}}>
+              {[["list","📋 一覧"],["link","🔗 リンク登録"],["manual","✏️ 手動登録"]].map(([key,label]) => (
+                <button key={key} onClick={() => {setTab(key); if(key!=="manual"){setEditId(null);setForm({title:"",date_start:"",date_end:"",location:"",category:"",note:"",link:""});}}}
+                  style={{padding:"8px 18px",borderRadius:8,border:"none",cursor:"pointer",fontSize:13,fontWeight:600,background:tab===key?"#064E3B":"transparent",color:tab===key?"white":"#065F46"}}>{label}</button>
               ))}
             </div>
 
-            {tab === "list" && (
+            {tab==="list" && (
               <div>
-                <div style={{ marginBottom:16, fontSize:14, color:"#065F46", fontWeight:600 }}>登録済みイベント（{events.length}件）</div>
-                <div style={{ display:"flex", flexDirection:"column", gap:10 }}>
-                  {events.map(ev => (
-                    <div key={ev.id} style={{ background:"white", borderRadius:12, padding:"16px 20px", display:"flex", alignItems:"center", gap:16, border:"1px solid #D1FAE5", borderLeft:`4px solid ${CAT_COLOR[ev.category]||"#6B7280"}` }}>
-                      <div style={{ flex:1 }}>
-                        <div style={{ fontWeight:700, color:"#064E3B", marginBottom:4 }}>{ev.title}</div>
-                        <div style={{ fontSize:12, color:"#059669" }}>{ev.date}　📍 {ev.location}</div>
+                <div style={{marginBottom:12,fontSize:14,color:"#065F46",fontWeight:600}}>登録済みイベント（{events.length}件）</div>
+                <div style={{display:"flex",flexDirection:"column",gap:8}}>
+                  {events.map(ev => {
+                    const color = CAT_COLOR[ev.category]||"#6B7280";
+                    return (
+                      <div key={ev.id} style={{background:"white",borderRadius:10,padding:"12px 16px",display:"flex",alignItems:"center",gap:12,border:"1px solid #D1FAE5",borderLeft:`4px solid ${color}`}}>
+                        <div style={{flex:1}}>
+                          <div style={{fontWeight:700,color:"#064E3B",fontSize:13,marginBottom:2}}>{ev.title}</div>
+                          <div style={{fontSize:11,color:"#059669"}}>
+                            {ev.date_start||ev.date}{ev.date_end&&ev.date_end!==(ev.date_start||ev.date)?` 〜 ${ev.date_end}`:""} 　📍 {ev.location}
+                          </div>
+                        </div>
+                        <span style={{background:color+"18",color:color,fontSize:10,fontWeight:700,padding:"2px 8px",borderRadius:20,whiteSpace:"nowrap"}}>{CAT_ICON[ev.category]} {ev.category}</span>
+                        <button onClick={() => startEdit(ev)} style={{background:"#ECFDF5",color:"#065F46",border:"1px solid #D1FAE5",borderRadius:6,padding:"5px 12px",cursor:"pointer",fontSize:11,fontWeight:600}}>編集</button>
+                        <button onClick={() => deleteEvent(ev.id)} style={{background:"#FEF2F2",color:"#DC2626",border:"1px solid #FECACA",borderRadius:6,padding:"5px 12px",cursor:"pointer",fontSize:11,fontWeight:600}}>削除</button>
                       </div>
-                      <span style={{ background:(CAT_COLOR[ev.category]||"#6B7280")+"18", color:CAT_COLOR[ev.category]||"#6B7280", fontSize:11, fontWeight:700, padding:"3px 10px", borderRadius:20 }}>{ev.category}</span>
-                      {ev.source==="ai" && <span style={{ fontSize:10, color:"#7C3AED", background:"#EDE9FE", padding:"2px 8px", borderRadius:10 }}>🤖 AI</span>}
-                      <button onClick={() => startEdit(ev)} style={{ background:"#ECFDF5", color:"#065F46", border:"1px solid #D1FAE5", borderRadius:8, padding:"6px 14px", cursor:"pointer", fontSize:12, fontWeight:600 }}>編集</button>
-                      <button onClick={() => deleteEvent(ev.id)} style={{ background:"#FEF2F2", color:"#DC2626", border:"1px solid #FECACA", borderRadius:8, padding:"6px 14px", cursor:"pointer", fontSize:12, fontWeight:600 }}>削除</button>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               </div>
             )}
 
-            {tab === "manual" && (
-              <div style={{ background:"white", borderRadius:16, padding:28, border:"1px solid #D1FAE5" }}>
-                <h2 style={{ fontWeight:700, fontSize:18, color:"#064E3B", marginBottom:20 }}>{editId?"イベント編集":"イベント手動登録"}</h2>
-                <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:16, marginBottom:16 }}>
-                  <div style={{ gridColumn:"1/-1" }}>
-                    <label style={lStyle}>イベント名 *</label>
-                    <input value={form.title} onChange={e => setForm(f=>({...f,title:e.target.value}))} onBlur={autoClassify} placeholder="例：第5回 伊勢志摩サミット記念イベント" style={iStyle} />
-                  </div>
-                  <div>
-                    <label style={lStyle}>開催日 *</label>
-                    <input type="date" value={form.date} onChange={e => setForm(f=>({...f,date:e.target.value}))} style={iStyle} />
-                  </div>
-                  <div>
-                    <label style={lStyle}>カテゴリ</label>
-                    <select value={form.category} onChange={e => setForm(f=>({...f,category:e.target.value}))} style={{...iStyle,background:"white"}}>
-                      <option value="">選択してください</option>
-                      {CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
-                    </select>
-                  </div>
-                  <div style={{ gridColumn:"1/-1" }}>
-                    <label style={lStyle}>会場 *</label>
-                    <input value={form.location} onChange={e => setForm(f=>({...f,location:e.target.value}))} placeholder="例：津市・三重県総合文化センター" style={iStyle} />
-                  </div>
-                  <div style={{ gridColumn:"1/-1" }}>
-                    <label style={lStyle}>主催者</label>
-                    <input value={form.organizer} onChange={e => setForm(f=>({...f,organizer:e.target.value}))} placeholder="例：三重県観光連盟" style={iStyle} />
-                  </div>
-                  <div style={{ gridColumn:"1/-1" }}>
-                    <label style={lStyle}>説明</label>
-                    <textarea value={form.description} onChange={e => setForm(f=>({...f,description:e.target.value}))} onBlur={autoClassify} placeholder="イベントの概要・内容を入力してください" style={{...iStyle,minHeight:90,resize:"vertical"}} />
-                  </div>
-                </div>
-                {(ai.classifying || ai.suggestion) && (
-                  <div style={{ background:ai.classifying?"#EFF6FF":"#F0FDF4", border:`1px solid ${ai.classifying?"#BFDBFE":"#BBF7D0"}`, borderRadius:10, padding:"10px 14px", fontSize:13, color:ai.classifying?"#2563EB":"#166534", marginBottom:14, whiteSpace:"pre-wrap" }}>
-                    {ai.classifying ? "🤖 AI分析中..." : `🤖 ${ai.suggestion}`}
-                  </div>
-                )}
-                <div style={{ display:"flex", gap:10 }}>
-                  <button onClick={aiCheck} disabled={ai.classifying} style={{ flex:1, background:"#ECFDF5", color:"#065F46", border:"1px solid #D1FAE5", borderRadius:10, padding:11, fontWeight:700, cursor:"pointer", fontSize:13 }}>🤖 AIチェック</button>
-                  <button onClick={saveEvent} style={{ flex:2, background:"linear-gradient(135deg,#064E3B,#0F766E)", color:"white", border:"none", borderRadius:10, padding:11, fontWeight:700, cursor:"pointer", fontSize:13 }}>{editId?"更新する":"登録する"}</button>
-                </div>
-              </div>
-            )}
-
-            {tab === "ai" && (
-              <div style={{ background:"white", borderRadius:16, padding:28, border:"1px solid #D1FAE5" }}>
-                <h2 style={{ fontWeight:700, fontSize:18, color:"#064E3B", marginBottom:6 }}>🤖 AI自動収集</h2>
-                <p style={{ fontSize:13, color:"#6B7280", marginBottom:12 }}>公式サイトのURLを入力するか、下のボタンから対象サイトを選ぶと、AIがイベント情報を自動で抽出・入力します。</p>
-                <div style={{ display:"flex", gap:8, flexWrap:"wrap", marginBottom:16 }}>
-                  {[
-                    { label:"🏛 三重県HP", url:"https://www.pref.mie.lg.jp" },
-                    { label:"🌿 観光三重", url:"https://www.kankomie.or.jp" },
-                    { label:"🗺 ウォーカープラス", url:"https://event.walkerplus.com/area/mie/" },
-                    { label:"🍵 三重テラス", url:"https://www.mie-terrace.jp" },
+            {tab==="link" && (
+              <div style={{background:"white",borderRadius:16,padding:28,border:"1px solid #D1FAE5"}}>
+                <h2 style={{fontWeight:700,fontSize:18,color:"#064E3B",marginBottom:6}}>🔗 リンクから登録</h2>
+                <p style={{fontSize:13,color:"#6B7280",marginBottom:16}}>公式サイトのURLを貼り付けると、タイトル・日付などを自動で読み取ります。</p>
+                <div style={{display:"flex",gap:8,flexWrap:"wrap",marginBottom:14}}>
+                  {[{label:"⛩️ 伊勢神宮",url:"https://www.isejingu.or.jp/sengu/the63rd/schedule.html"},
+                    {label:"🏎️ 鈴鹿サーキット",url:"https://www.suzukacircuit.jp/calendar_s/"},
+                    {label:"🌿 観光三重",url:"https://www.kankomie.or.jp/event"},
+                    {label:"🍵 三重テラス",url:"https://mie-terrace.jp/events"},
                   ].map(s => (
-                    <button key={s.label} onClick={() => setAi(a=>({...a,url:s.url}))} style={{ background:"#ECFDF5", color:"#065F46", border:"1px solid #D1FAE5", borderRadius:8, padding:"6px 14px", cursor:"pointer", fontSize:12, fontWeight:600 }}>{s.label}</button>
+                    <button key={s.label} onClick={() => setLinkState(ls=>({...ls,url:s.url}))} style={{background:"#ECFDF5",color:"#065F46",border:"1px solid #D1FAE5",borderRadius:8,padding:"6px 14px",cursor:"pointer",fontSize:12,fontWeight:600}}>{s.label}</button>
                   ))}
                 </div>
-                <div style={{ display:"flex", gap:10, marginBottom:20 }}>
-                  <input value={ai.url} onChange={e => setAi(a=>({...a,url:e.target.value}))} onKeyDown={e => e.key==="Enter" && fetchFromUrl()} placeholder="URLを入力、またはキーワード（例：三重県 夏まつり 2026）" style={{...iStyle,flex:1}} />
-                  <button onClick={fetchFromUrl} disabled={ai.loading} style={{ background:"linear-gradient(135deg,#064E3B,#0F766E)", color:"white", border:"none", borderRadius:10, padding:"10px 20px", fontWeight:700, cursor:"pointer", fontSize:13, whiteSpace:"nowrap" }}>
-                    {ai.loading ? "取得中..." : "🔍 取得"}
+                <div style={{display:"flex",gap:10,marginBottom:14}}>
+                  <input value={linkState.url} onChange={e => setLinkState(s=>({...s,url:e.target.value,error:null}))} onKeyDown={e => e.key==="Enter"&&fetchMeta()} placeholder="URLを入力..." style={{...iStyle,flex:1}} />
+                  <button onClick={fetchMeta} disabled={linkState.loading} style={{background:"linear-gradient(135deg,#064E3B,#0F766E)",color:"white",border:"none",borderRadius:10,padding:"10px 20px",fontWeight:700,cursor:"pointer",fontSize:13,whiteSpace:"nowrap"}}>
+                    {linkState.loading?"読み取り中...":"🔍 取得"}
                   </button>
                 </div>
-                {ai.loading && <div style={{ background:"#EFF6FF", borderRadius:12, padding:20, textAlign:"center", color:"#2563EB", fontSize:13, marginBottom:20 }}>🤖 AIがWebを検索・解析しています...</div>}
-                {ai.error && <div style={{ background:"#FEF2F2", border:"1px solid #FECACA", borderRadius:10, padding:"12px 16px", fontSize:13, color:"#DC2626", marginBottom:20 }}>{ai.error}</div>}
-                {ai.result && !ai.loading && <div style={{ background:"#F0FDF4", border:"1px solid #BBF7D0", borderRadius:12, padding:16, marginBottom:20 }}><div style={{ fontSize:13, fontWeight:700, color:"#065F46" }}>✅ 以下の情報を抽出しました。編集して登録できます。</div></div>}
-                <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:16, marginBottom:16 }}>
-                  <div style={{ gridColumn:"1/-1" }}><label style={lStyle}>イベント名 *</label><input value={form.title} onChange={e => setForm(f=>({...f,title:e.target.value}))} style={iStyle} /></div>
-                  <div><label style={lStyle}>開催日</label><input type="date" value={form.date} onChange={e => setForm(f=>({...f,date:e.target.value}))} style={iStyle} /></div>
-                  <div><label style={lStyle}>カテゴリ</label>
-                    <select value={form.category} onChange={e => setForm(f=>({...f,category:e.target.value}))} style={{...iStyle,background:"white"}}>
-                      <option value="">選択</option>{CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
-                    </select>
-                  </div>
-                  <div style={{ gridColumn:"1/-1" }}><label style={lStyle}>会場</label><input value={form.location} onChange={e => setForm(f=>({...f,location:e.target.value}))} style={iStyle} /></div>
-                  <div style={{ gridColumn:"1/-1" }}><label style={lStyle}>主催者</label><input value={form.organizer} onChange={e => setForm(f=>({...f,organizer:e.target.value}))} style={iStyle} /></div>
-                  <div style={{ gridColumn:"1/-1" }}><label style={lStyle}>説明</label><textarea value={form.description} onChange={e => setForm(f=>({...f,description:e.target.value}))} style={{...iStyle,minHeight:80,resize:"vertical"}} /></div>
+                {linkState.error && <div style={{background:"#FEF2F2",border:"1px solid #FECACA",borderRadius:10,padding:"10px 14px",fontSize:13,color:"#DC2626"}}>{linkState.error}</div>}
+              </div>
+            )}
+
+            {tab==="manual" && (
+              <div style={{background:"white",borderRadius:16,padding:28,border:"1px solid #D1FAE5"}}>
+                <h2 style={{fontWeight:700,fontSize:18,color:"#064E3B",marginBottom:4}}>{editId?"✏️ イベント編集":"✏️ イベント登録"}</h2>
+                <p style={{fontSize:12,color:"#9CA3AF",marginBottom:20}}>イベント名・開始日は必須。他は任意・後から編集可。</p>
+
+                <div style={{marginBottom:16}}>
+                  <label style={lStyle}>イベント名 <span style={{color:"#EF4444"}}>*</span></label>
+                  <input value={form.title} onChange={e=>setForm(f=>({...f,title:e.target.value}))} onBlur={autoClassify} placeholder="例：第63回神宮式年遷宮 第一次お木曳行事" style={{...iStyle,fontSize:15}} />
                 </div>
-                <button onClick={saveEvent} style={{ width:"100%", background:"linear-gradient(135deg,#064E3B,#0F766E)", color:"white", border:"none", borderRadius:10, padding:12, fontWeight:700, cursor:"pointer", fontSize:14 }}>
-                  🤖 このイベントをAI収集として登録する
+                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:14,marginBottom:16}}>
+                  <div>
+                    <label style={lStyle}>開始日 <span style={{color:"#EF4444"}}>*</span></label>
+                    <input type="date" value={form.date_start} onChange={e=>setForm(f=>({...f,date_start:e.target.value}))} style={iStyle} />
+                  </div>
+                  <div>
+                    <label style={lStyle}>終了日 <span style={{color:"#9CA3AF",fontWeight:400}}>（複数日の場合）</span></label>
+                    <div style={{display:"flex",gap:8}}>
+                      <input type="date" value={form.date_end} onChange={e=>setForm(f=>({...f,date_end:e.target.value}))} style={{...iStyle,flex:1}} />
+                      <button onClick={()=>setForm(f=>({...f,date_end:""}))} style={{padding:"8px 10px",borderRadius:8,border:"1px solid #D1FAE5",background:"#F9FAFB",color:"#6B7280",cursor:"pointer",fontSize:11}}>×</button>
+                    </div>
+                  </div>
+                </div>
+                <div style={{marginBottom:14}}>
+                  <label style={lStyle}>カテゴリ</label>
+                  <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+                    {CATEGORIES.map(c => (
+                      <button key={c} onClick={()=>setForm(f=>({...f,category:f.category===c?"":c}))} style={{padding:"7px 12px",borderRadius:20,border:"2px solid",cursor:"pointer",fontSize:11,fontWeight:700,transition:"all 0.15s",
+                        borderColor:form.category===c?CAT_COLOR[c]:"#E5E7EB",background:form.category===c?CAT_COLOR[c]+"18":"white",color:form.category===c?CAT_COLOR[c]:"#6B7280"}}>
+                        {CAT_ICON[c]} {c}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <div style={{marginBottom:14}}>
+                  <label style={lStyle}>会場 <span style={{color:"#9CA3AF",fontWeight:400}}>（任意）</span></label>
+                  <input value={form.location} onChange={e=>setForm(f=>({...f,location:e.target.value}))} placeholder="例：伊勢市・五十鈴川〜内宮" style={iStyle} />
+                </div>
+                <div style={{marginBottom:14}}>
+                  <label style={lStyle}>備考・注意事項 <span style={{color:"#9CA3AF",fontWeight:400}}>（任意）</span></label>
+                  <textarea value={form.note} onChange={e=>setForm(f=>({...f,note:e.target.value}))} placeholder="概要・注意・コラボ可能性など" style={{...iStyle,minHeight:80,resize:"vertical"}} />
+                </div>
+                <div style={{marginBottom:20}}>
+                  <label style={lStyle}>リンク <span style={{color:"#9CA3AF",fontWeight:400}}>（任意）</span></label>
+                  <input value={form.link} onChange={e=>setForm(f=>({...f,link:e.target.value}))} placeholder="https://..." style={iStyle} />
+                </div>
+                {(ai.classifying||ai.suggestion) && (
+                  <div style={{background:ai.classifying?"#EFF6FF":"#F0FDF4",border:`1px solid ${ai.classifying?"#BFDBFE":"#BBF7D0"}`,borderRadius:10,padding:"10px 14px",fontSize:13,color:ai.classifying?"#2563EB":"#166534",marginBottom:14}}>
+                    {ai.classifying?"🤖 AI分析中...":`🤖 ${ai.suggestion}`}
+                  </div>
+                )}
+                <button onClick={saveEvent} style={{width:"100%",background:"linear-gradient(135deg,#064E3B,#0F766E)",color:"white",border:"none",borderRadius:10,padding:13,fontWeight:700,cursor:"pointer",fontSize:14}}>
+                  {editId?"✅ 更新する":"✅ 登録する"}
                 </button>
+                {editId && <button onClick={()=>{setEditId(null);setForm({title:"",date_start:"",date_end:"",location:"",category:"",note:"",link:""});setTab("list");}} style={{marginTop:8,width:"100%",background:"transparent",color:"#9CA3AF",border:"none",cursor:"pointer",fontSize:13}}>キャンセル</button>}
               </div>
             )}
           </div>
