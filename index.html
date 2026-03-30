@@ -22,8 +22,8 @@
   <script type="text/babel">
     const { useState, useEffect } = React;
 
-    const SHEET_ID = "1auEhzPqOCyd853PveZZMOGucLxilnMcWp-eeQW030Yg";
-    const SHEET_URL = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?tqx=out:csv&sheet=events`;
+    
+    const SHEET_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vQ7IcVDdqxEUdoUpQZcgHxk2xWfyPk0-M21Aho1DwBJMsvnsQrcUeXhVvkF2nTXbS4xpca-AKY0Iuy5/pub?gid=935486456&single=true&output=csv";
 
     const CATEGORIES = ["式年遷宮","大型集客・MICE","花火・祭り","産業・ビジネス","教育・学習","文化・観光","農業・食"];
     const CAT_COLOR = {
@@ -181,7 +181,7 @@
                 <div style={{fontSize:24, marginBottom:8}}>⚠️</div>
                 <div style={{fontWeight:700, marginBottom:4}}>データの読み込みに失敗しました</div>
                 <div style={{fontSize:13}}>Googleスプレッドシートの公開設定（リンクを知っている全員が閲覧可能）を確認してください。</div>
-                <div style={{fontSize:12, color:"#9CA3AF", marginTop:8}}>シートID: {SHEET_ID}</div>
+                
               </div>
             )}
 
